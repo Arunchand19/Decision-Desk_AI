@@ -2,6 +2,9 @@
 
 A small end-to-end support-ticket decision assistant built with FastAPI, SQLite, JWT, Streamlit, local retrieval, and Gemini.
 
+<img width="1917" height="892" alt="image" src="https://github.com/user-attachments/assets/a34b0308-edf4-4766-8e39-2884dfc7a145" />
+
+
 ## Features
 
 - User registration and login with Argon2 password hashes and JWT bearer tokens
