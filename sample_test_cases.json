@@ -1,0 +1,6 @@
+[
+  {"message": "My package arrived damaged but I have not sent any pictures yet.", "expected_action": "REQUEST_PHOTOS"},
+  {"message": "I received the wrong item. My order number is 1234 and I attached a photo.", "expected_action": "REQUEST_ORDER_DETAILS"},
+  {"message": "I want to return this item.", "expected_action": "REQUEST_ORDER_DETAILS"},
+  {"message": "Can you tell me where my order is?", "expected_action": "NEEDS_MORE_INFORMATION"}
+]

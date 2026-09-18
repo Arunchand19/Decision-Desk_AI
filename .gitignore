@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+support_ai.db
+test_support_ai.db
+evaluation.db
+retrieval_index.pkl
+.streamlit/
+*.egg-info/

@@ -1,0 +1,4 @@
+message,expected_action
+"My package arrived damaged and I have not taken photos.",REQUEST_PHOTOS
+"I want to return an item but did not provide an order number.",REQUEST_ORDER_DETAILS
+"I received the wrong item and need help.",REQUEST_ORDER_DETAILS
