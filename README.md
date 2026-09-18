@@ -1,6 +1,6 @@
 # Policy Desk
 
-A small end-to-end support-ticket decision assistant built with FastAPI, SQLite, JWT, Streamlit, local retrieval, and Gemini.
+A small support-ticket decision assistant built with Streamlit, SQLite, JWT, local retrieval, and Gemini. The Streamlit app can run standalone without a FastAPI server.
 
 <img width="1917" height="892" alt="image" src="https://github.com/user-attachments/assets/a34b0308-edf4-4766-8e39-2884dfc7a145" />
 
@@ -52,15 +52,19 @@ python evaluate.py
 
 The API is available at `http://localhost:8000`; interactive docs are at `/docs`. The Streamlit client communicates with the API over HTTP and never accesses SQLite directly.
 
-## Deploying the hosted app
+## Deploying the standalone Streamlit app
 
-Streamlit Cloud cannot reach `localhost:8000`. Deploy the FastAPI service separately, for example with the included `Dockerfile` and `render.yaml`. Set `GEMINI_API_KEY` and `JWT_SECRET` as backend service environment variables, then add this secret to Streamlit Cloud:
+Deploy `streamlit_app.py` directly on Streamlit Community Cloud. In the app settings, add these secrets:
 
 ```toml
-API_URL = "https://your-public-fastapi-service.example.com"
+GEMINI_API_KEY = "your-new-gemini-key"
+JWT_SECRET = "your-long-random-secret"
+DATABASE_URL = "sqlite:///./support_ai.db"
 ```
 
-Do not put the Gemini key in GitHub, `.env.example`, or Streamlit source files. The hosted frontend only needs `API_URL`; the Gemini key belongs on the backend service.
+The standalone app performs registration, login, ticket persistence, retrieval, and Gemini decisions directly. It does not call `localhost:8000` or require FastAPI to be running. Do not put the Gemini key in GitHub, `.env.example`, or Streamlit source files.
+
+The FastAPI backend and included `Dockerfile`/`render.yaml` remain available as an optional REST deployment when API separation is required.
 
 ## Design notes
 

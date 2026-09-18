@@ -1,23 +1,33 @@
 import os
+import json
+from pathlib import Path
 
-import requests
 import streamlit as st
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 st.set_page_config(page_title="Policy Desk", page_icon="P", layout="wide")
 
 
-def configured_api_url() -> str:
-    try:
-        secret_url = st.secrets.get("API_URL")
-    except FileNotFoundError:
-        secret_url = None
-    return (secret_url or os.getenv("API_URL") or "http://localhost:8000").rstrip("/")
+def secret_value(name: str, default: str | None = None) -> str | None:
+    secret_paths = (Path.cwd() / ".streamlit" / "secrets.toml", Path.home() / ".streamlit" / "secrets.toml")
+    value = None
+    if any(path.exists() for path in secret_paths):
+        value = st.secrets.get(name)
+    return value or os.getenv(name) or default
 
 
-API_URL = configured_api_url()
-if API_URL.startswith("http://localhost") or API_URL.startswith("http://127.0.0.1"):
-    st.sidebar.warning("The API URL is local. Set API_URL in Streamlit Cloud secrets to your public FastAPI URL.")
-API_URL = st.sidebar.text_input("API URL", API_URL).rstrip("/")
+for setting_name in ("GEMINI_API_KEY", "JWT_SECRET", "DATABASE_URL"):
+    setting = secret_value(setting_name)
+    if setting:
+        os.environ[setting_name] = setting
+
+from src.database import Decision, SessionLocal, Ticket, User, init_db
+from src.decision import decide
+from src.schemas import LoginRequest, RegisterRequest, TicketCreate
+from src.security import create_access_token, hash_password, verify_password
+
+init_db()
 
 st.markdown(
     """
@@ -120,19 +130,70 @@ button[kind="primary"]:hover { background: #d85e42 !important; transform: transl
 )
 
 
-def api_request(method: str, path: str, **kwargs):
-    headers = kwargs.pop("headers", {})
-    if st.session_state.get("token"):
-        headers["Authorization"] = f"Bearer {st.session_state['token']}"
+def ticket_payload(ticket: Ticket) -> dict:
+    return {
+        "id": ticket.id,
+        "message": ticket.message,
+        "created_at": ticket.created_at.isoformat(),
+        "decision": {
+            "action": ticket.decision.action,
+            "reason": ticket.decision.reason,
+            "confidence": ticket.decision.confidence,
+            "sources": json.loads(ticket.decision.sources),
+            "created_at": ticket.decision.created_at.isoformat(),
+        } if ticket.decision else None,
+    }
+
+
+def direct_request(method: str, path: str, payload: dict | None = None) -> dict | list | None:
+    payload = payload or {}
+    db = SessionLocal()
     try:
-        response = requests.request(method, f"{API_URL}{path}", headers=headers, timeout=90, **kwargs)
-        if response.status_code >= 400:
-            st.error(response.json().get("detail", response.text))
-            return None
-        return response.json()
-    except requests.RequestException as error:
-        st.error(f"Could not reach the API: {error}")
+        if method == "POST" and path == "/register":
+            data = RegisterRequest.model_validate(payload)
+            email = str(data.email).lower()
+            if db.scalar(select(User).where(User.email == email)):
+                raise ValueError("Email is already registered")
+            user = User(email=email, password_hash=hash_password(data.password))
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            return {"id": user.id, "email": user.email, "created_at": user.created_at.isoformat()}
+
+        if method == "POST" and path == "/login":
+            data = LoginRequest.model_validate(payload)
+            user = db.scalar(select(User).where(User.email == str(data.email).lower()))
+            if user is None or not verify_password(data.password, user.password_hash):
+                raise ValueError("Incorrect email or password")
+            return {"access_token": create_access_token(user.id), "user_id": user.id, "token_type": "bearer"}
+
+        user_id = st.session_state.get("user_id")
+        if not user_id:
+            raise ValueError("Please log in to continue")
+        if method == "GET" and path == "/me":
+            user = db.get(User, user_id)
+            return {"id": user.id, "email": user.email, "created_at": user.created_at.isoformat()}
+
+        if method == "POST" and path == "/tickets":
+            data = TicketCreate.model_validate(payload)
+            result = decide(data.message)
+            ticket = Ticket(user_id=user_id, message=data.message)
+            ticket.decision = Decision(action=result.action.value, reason=result.reason, confidence=result.confidence, sources=json.dumps(result.sources))
+            db.add(ticket)
+            db.commit()
+            db.refresh(ticket)
+            return ticket_payload(ticket)
+
+        if method == "GET" and path == "/tickets":
+            tickets = db.scalars(select(Ticket).options(joinedload(Ticket.decision)).where(Ticket.user_id == user_id).order_by(Ticket.created_at.desc())).unique().all()
+            return [ticket_payload(ticket) for ticket in tickets]
+
+        raise ValueError("Unsupported request")
+    except Exception as error:
+        st.error(str(error))
         return None
+    finally:
+        db.close()
 
 
 ACTION_GUIDANCE = {
@@ -202,11 +263,13 @@ def render_decision(ticket: dict) -> None:
 
 if "token" not in st.session_state:
     st.session_state.token = None
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
 if "selected_ticket" not in st.session_state:
     st.session_state.selected_ticket = None
 
 st.markdown(
-    '<div class="brandbar"><div class="brandmark"><div class="brand-symbol">PD</div><div><div class="brand-name">Policy Desk</div><div class="brand-kicker">Decision intelligence / support ops</div></div></div><div class="live-pill"><span class="live-dot"></span>LOCAL WORKSPACE</div></div>',
+    '<div class="brandbar"><div class="brandmark"><div class="brand-symbol">PD</div><div><div class="brand-name">Policy Desk</div><div class="brand-kicker">Decision intelligence / support ops</div></div></div><div class="live-pill"><span class="live-dot"></span>GEMINI DIRECT</div></div>',
     unsafe_allow_html=True,
 )
 
@@ -219,9 +282,10 @@ if not st.session_state.token:
             password = st.text_input("Password", type="password", key="login_password")
             submitted = st.form_submit_button("Log in", type="primary")
         if submitted:
-            result = api_request("POST", "/login", json={"email": email, "password": password})
+            result = direct_request("POST", "/login", {"email": email, "password": password})
             if result:
                 st.session_state.token = result["access_token"]
+                st.session_state.user_id = result["user_id"]
                 st.rerun()
     with register_tab:
         with st.form("register"):
@@ -229,15 +293,16 @@ if not st.session_state.token:
             password = st.text_input("Password (8+ characters)", type="password", key="register_password")
             submitted = st.form_submit_button("Create account", type="primary")
         if submitted:
-            result = api_request("POST", "/register", json={"email": email, "password": password})
+            result = direct_request("POST", "/register", {"email": email, "password": password})
             if result:
                 st.success("Account created. You can now log in.")
     st.stop()
 
-user = api_request("GET", "/me")
+user = direct_request("GET", "/me")
 st.sidebar.write(f"Signed in as {user['email'] if user else 'user'}")
 if st.sidebar.button("Log out"):
     st.session_state.token = None
+    st.session_state.user_id = None
     st.rerun()
 
 st.markdown('<div class="workspace-intro"><h1>Good decisions, documented.</h1><p>Turn the next customer message into a grounded action plan.</p></div>', unsafe_allow_html=True)
@@ -249,7 +314,7 @@ with new_tab:
         message = st.text_area("Customer message", height=180, placeholder="Example: My package arrived damaged, what should I send?")
         submitted = st.form_submit_button("Generate decision", type="primary")
     if submitted:
-        result = api_request("POST", "/tickets", json={"message": message})
+        result = direct_request("POST", "/tickets", {"message": message})
         if result:
             st.session_state.selected_ticket = result
     if st.session_state.selected_ticket:
@@ -260,7 +325,7 @@ with new_tab:
 with history_tab:
     st.markdown('<div class="section-label">Archive / decision trail</div>', unsafe_allow_html=True)
     st.subheader("Previous tickets")
-    tickets = api_request("GET", "/tickets") or []
+    tickets = direct_request("GET", "/tickets") or []
     if not tickets:
         st.info("No decisions yet.")
     for ticket in tickets:
