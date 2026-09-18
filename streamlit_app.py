@@ -1,8 +1,23 @@
+import os
+
 import requests
 import streamlit as st
 
 st.set_page_config(page_title="Policy Desk", page_icon="P", layout="wide")
-API_URL = st.sidebar.text_input("API URL", "http://localhost:8000").rstrip("/")
+
+
+def configured_api_url() -> str:
+    try:
+        secret_url = st.secrets.get("API_URL")
+    except FileNotFoundError:
+        secret_url = None
+    return (secret_url or os.getenv("API_URL") or "http://localhost:8000").rstrip("/")
+
+
+API_URL = configured_api_url()
+if API_URL.startswith("http://localhost") or API_URL.startswith("http://127.0.0.1"):
+    st.sidebar.warning("The API URL is local. Set API_URL in Streamlit Cloud secrets to your public FastAPI URL.")
+API_URL = st.sidebar.text_input("API URL", API_URL).rstrip("/")
 
 st.markdown(
     """

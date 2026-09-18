@@ -49,6 +49,16 @@ python evaluate.py
 
 The API is available at `http://localhost:8000`; interactive docs are at `/docs`. The Streamlit client communicates with the API over HTTP and never accesses SQLite directly.
 
+## Deploying the hosted app
+
+Streamlit Cloud cannot reach `localhost:8000`. Deploy the FastAPI service separately, for example with the included `Dockerfile` and `render.yaml`. Set `GEMINI_API_KEY` and `JWT_SECRET` as backend service environment variables, then add this secret to Streamlit Cloud:
+
+```toml
+API_URL = "https://your-public-fastapi-service.example.com"
+```
+
+Do not put the Gemini key in GitHub, `.env.example`, or Streamlit source files. The hosted frontend only needs `API_URL`; the Gemini key belongs on the backend service.
+
 ## Design notes
 
 The retriever stores its generated local index in `retrieval_index.pkl`, which is ignored by Git and rebuilt from `knowledge_base/*.md` when absent. Gemini output is parsed as JSON, checked against the allowed action enum, confidence range, and retrieved source names. Invalid or unavailable model output falls back to `NEEDS_MORE_INFORMATION` or a small deterministic policy workflow rather than inventing an answer.
