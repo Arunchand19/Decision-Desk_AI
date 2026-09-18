@@ -3,6 +3,8 @@
 A small support-ticket decision assistant built with Streamlit, SQLite, JWT, local retrieval, and Gemini. The Streamlit app can run standalone without a FastAPI server.
 
 <img width="1917" height="892" alt="image" src="https://github.com/user-attachments/assets/a34b0308-edf4-4766-8e39-2884dfc7a145" />
+<img width="1892" height="892" alt="image" src="https://github.com/user-attachments/assets/2a8436c8-54cd-436f-9c83-9c0549e8d48b" />
+
 
 
 ## Features
